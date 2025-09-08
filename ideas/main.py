@@ -38,9 +38,10 @@ class IdeaResponse(BaseModel):
     visibility: str
     parent_id: Optional[str] = None
     clonable: bool
+    share_hash: Optional[str] = None  # ✅ add this
 
     class Config:
-        from_attributes = True  # ✅ Required for .from_orm() in Pydantic v2
+        from_attributes = True
 
 
 # ==== Helpers ====
