@@ -52,8 +52,10 @@ def signup(req: SignupRequest, session: Session = Depends(db.get_session)):
     if user:
         raise HTTPException(status_code=400, detail="Email already registered")
 
+    print(f"req: {req}")
+    print("Creating user", req.email)
     new_user = models.User(
-        name=req.name,
+        name=req.name or 'User',
         email=req.email,
         password_hash=hash_password(req.password),
     )
