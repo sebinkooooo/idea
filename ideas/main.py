@@ -40,7 +40,7 @@ class IdeaResponse(BaseModel):
     clonable: bool
 
     class Config:
-        orm_mode = True
+        from_attributes = True  # ✅ Required for .from_orm() in Pydantic v2
 
 
 # ==== Helpers ====
