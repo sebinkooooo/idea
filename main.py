@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from sqlalchemy import create_engine
 
-from . import models, db
+from backend import models, db
 
 # Import routers
 from backend.auth import main as auth_router
