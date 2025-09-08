@@ -137,7 +137,7 @@ def get_idea(
     idea_id: str,
     password: Optional[str] = Query(None),
     session: Session = Depends(db.get_session),
-    current_user: models.User = Depends(get_current_user),
+    current_user: models.User = Depends(get_current_user)
 ):
     idea = session.query(models.Idea).get(idea_id)
     if not idea:
@@ -151,6 +151,7 @@ def get_idea(
         if not password or not check_password(password, idea.password_hash):
             raise HTTPException(status_code=403, detail="Password required or incorrect")
 
+    # ✅ attach owner_name here
     owner = session.query(models.User).get(idea.user_id)
     owner_name = owner.name if owner else None
 
