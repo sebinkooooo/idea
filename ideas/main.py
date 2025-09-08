@@ -1,9 +1,10 @@
+# ideas/main.py
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
-import uuid, hashlib
+import hashlib
 
 import db, models
 from auth.main import get_current_user
@@ -21,6 +22,7 @@ class IdeaSubmission(BaseModel):
     password: Optional[str] = None
     clonable: bool = True
 
+
 class UpdateIdeaRequest(BaseModel):
     title: Optional[str] = None
     public_md: Optional[str] = None
@@ -28,6 +30,7 @@ class UpdateIdeaRequest(BaseModel):
     visibility: Optional[str] = None
     password: Optional[str] = None
     clonable: Optional[bool] = None
+
 
 class IdeaResponse(BaseModel):
     id: str
@@ -38,22 +41,24 @@ class IdeaResponse(BaseModel):
     visibility: str
     parent_id: Optional[str] = None
     clonable: bool
-    share_hash: Optional[str] = None  # ✅ add this
-    created_at: datetime   # 👈 you should add this
+    share_hash: Optional[str] = None
+    created_at: datetime
     owner_name: Optional[str] = None
 
     class Config:
-        from_attributes = True
+        from_attributes = True  # enables model_validate(..., from_attributes=True)
 
 
 # ==== Helpers ====
 def hash_password(pw: str) -> str:
     return hashlib.sha256(pw.encode()).hexdigest()
 
+
 def check_password(pw: str, hash_val: str) -> bool:
     return hash_password(pw) == hash_val
 
-def generate_markdown_from_submission(title: str, notes: str, links: List[str], summary: str):
+
+def generate_markdown_from_submission(title: str, notes: Optional[str], links: Optional[List[str]], summary: Optional[str]):
     context = f"""
 # TITLE
 {title}
@@ -83,7 +88,7 @@ def generate_markdown_from_submission(title: str, notes: str, links: List[str], 
 def create_idea(
     req: IdeaSubmission,
     session: Session = Depends(db.get_session),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
 ):
     """Create a new idea from raw submission (AI generates markdown)"""
     public_md, private_md, raw_context = generate_markdown_from_submission(
@@ -116,12 +121,15 @@ def create_idea(
         type="raw_submission",
         content=raw_context,
         visibility="private",
-        created_at=datetime.utcnow()
+        created_at=datetime.utcnow(),
     )
     session.add(raw_repo_item)
     session.commit()
 
-    return idea
+    # Pydantic v2: model_validate + add owner_name
+    return IdeaResponse.model_validate(idea, from_attributes=True).model_copy(
+        update={"owner_name": current_user.name}
+    )
 
 
 @router.get("/{idea_id}", response_model=IdeaResponse)
@@ -129,7 +137,7 @@ def get_idea(
     idea_id: str,
     password: Optional[str] = Query(None),
     session: Session = Depends(db.get_session),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
 ):
     idea = session.query(models.Idea).get(idea_id)
     if not idea:
@@ -143,7 +151,12 @@ def get_idea(
         if not password or not check_password(password, idea.password_hash):
             raise HTTPException(status_code=403, detail="Password required or incorrect")
 
-    return idea
+    owner = session.query(models.User).get(idea.user_id)
+    owner_name = owner.name if owner else None
+
+    return IdeaResponse.model_validate(idea, from_attributes=True).model_copy(
+        update={"owner_name": owner_name}
+    )
 
 
 @router.patch("/{idea_id}", response_model=IdeaResponse)
@@ -151,7 +164,7 @@ def update_idea(
     idea_id: str,
     req: UpdateIdeaRequest,
     session: Session = Depends(db.get_session),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
 ):
     idea = session.query(models.Idea).get(idea_id)
     if not idea:
@@ -159,23 +172,35 @@ def update_idea(
     if idea.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not your idea")
 
-    if req.title is not None: idea.title = req.title
-    if req.public_md is not None: idea.public_md = req.public_md
-    if req.private_md is not None: idea.private_md = req.private_md
-    if req.visibility is not None: idea.visibility = req.visibility
-    if req.password is not None: idea.password_hash = hash_password(req.password)
-    if req.clonable is not None: idea.clonable = req.clonable
+    if req.title is not None:
+        idea.title = req.title
+    if req.public_md is not None:
+        idea.public_md = req.public_md
+    if req.private_md is not None:
+        idea.private_md = req.private_md
+    if req.visibility is not None:
+        idea.visibility = req.visibility
+    if req.password is not None:
+        idea.password_hash = hash_password(req.password)
+    if req.clonable is not None:
+        idea.clonable = req.clonable
 
     session.commit()
     session.refresh(idea)
-    return idea
+
+    owner = session.query(models.User).get(idea.user_id)
+    owner_name = owner.name if owner else None
+
+    return IdeaResponse.model_validate(idea, from_attributes=True).model_copy(
+        update={"owner_name": owner_name}
+    )
 
 
 @router.delete("/{idea_id}")
 def delete_idea(
     idea_id: str,
     session: Session = Depends(db.get_session),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
 ):
     idea = session.query(models.Idea).get(idea_id)
     if not idea:
@@ -192,7 +217,7 @@ def delete_idea(
 def clone_idea(
     idea_id: str,
     session: Session = Depends(db.get_session),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
 ):
     parent = session.query(models.Idea).get(idea_id)
     if not parent:
@@ -212,9 +237,12 @@ def clone_idea(
         private_md=parent.private_md,
         visibility="private",
         parent_id=parent.id,
-        clonable=parent.clonable
+        clonable=parent.clonable,
     )
     session.add(clone)
     session.commit()
     session.refresh(clone)
-    return clone
+
+    return IdeaResponse.model_validate(clone, from_attributes=True).model_copy(
+        update={"owner_name": current_user.name}
+    )

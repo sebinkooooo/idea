@@ -1,3 +1,4 @@
+# feed/main.py
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from typing import List
@@ -16,4 +17,17 @@ def get_feed(session: Session = Depends(db.get_session)):
         .order_by(models.Idea.created_at.desc())
         .all()
     )
-    return [IdeaResponse.from_orm(i) for i in ideas]
+
+    results: List[IdeaResponse] = []
+    for idea in ideas:
+        owner = session.query(models.User).get(idea.user_id)
+        owner_name = owner.name if owner else None
+
+        # ✅ Use Pydantic v2 model_validate
+        results.append(
+            IdeaResponse.model_validate(idea, from_attributes=True).model_copy(
+                update={"owner_name": owner_name}
+            )
+        )
+
+    return results
