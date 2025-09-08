@@ -28,3 +28,4 @@ uvicorn==0.35.0
 sqlalchemy
 psycopg2-binary
 passlib
+python-jose
