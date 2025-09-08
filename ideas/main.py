@@ -39,6 +39,8 @@ class IdeaResponse(BaseModel):
     parent_id: Optional[str] = None
     clonable: bool
     share_hash: Optional[str] = None  # ✅ add this
+    created_at: datetime   # 👈 you should add this
+    owner_name: Optional[str] = None
 
     class Config:
         from_attributes = True
