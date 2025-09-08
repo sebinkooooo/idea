@@ -1,10 +1,12 @@
 # backend/models.py
+from typing import Optional
+from pydantic import BaseModel
 from sqlalchemy import Column, String, DateTime, ForeignKey, Text, Boolean
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
 
-from backend.db import Base  # 🔑 import Base from db.py
+from db import Base  # 🔑 import Base from db.py
 
 class User(Base):
     __tablename__ = "users"

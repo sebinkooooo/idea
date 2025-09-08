@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional
 
-from backend import db, models
-from backend.ideas.main import IdeaResponse
-from backend.ideas.main import check_password  # reuse helper
+import db, models
+from ideas.main import IdeaResponse
+from ideas.main import check_password  # reuse helper
 
 router = APIRouter()
 

@@ -1,16 +1,16 @@
 from fastapi import FastAPI
 from sqlalchemy import create_engine
 
-from . import models, db
+import models, db
 
 # Import routers
-from backend.auth import main as auth_router
-from backend.ideas import main as ideas_router
-from backend.chat import main as chat_router
-from backend.assets import main as assets_router
-from backend.feed import main as feed_router
-from backend.home import main as home_router
-from backend.share import main as share_router
+import auth.main as auth_router
+import ideas.main as ideas_router
+import chat.main as chat_router
+import assets.main as assets_router
+import feed.main as feed_router
+import home.main as home_router
+import share.main as share_router
 
 
 # Optional extras if you build them out

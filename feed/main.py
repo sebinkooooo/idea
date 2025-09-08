@@ -2,8 +2,8 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from typing import List
 
-from backend import db, models
-from backend.ideas.main import IdeaResponse
+import db, models
+from ideas.main import IdeaResponse
 
 router = APIRouter()
 

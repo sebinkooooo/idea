@@ -5,9 +5,9 @@ from typing import List, Optional
 from datetime import datetime
 import uuid, hashlib
 
-from backend import db, models
-from backend.auth.main import get_current_user
-from backend.chat.openai_helper import ask_openai
+import db, models
+from auth.main import get_current_user
+from chat.openai_helper import ask_openai
 
 router = APIRouter()
 

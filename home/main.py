@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from typing import List
 
-from backend import db, models
-from backend.auth.main import get_current_user
-from backend.ideas.main import IdeaResponse
+import db, models
+from auth.main import get_current_user
+from ideas.main import IdeaResponse
 
 router = APIRouter()
 
