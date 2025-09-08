@@ -4,7 +4,7 @@ from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
 
-from db import Base  # 🔑 import Base from db.py
+from backend.db import Base  # 🔑 import Base from db.py
 
 class User(Base):
     __tablename__ = "users"
