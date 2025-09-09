@@ -1,8 +1,10 @@
+# chat/main.py
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import datetime
+import json
 
 import db, models
 from auth.main import get_current_user
@@ -18,6 +20,11 @@ class AskResponse(BaseModel):
     answer: str
     images: List[Dict[str, Any]] = []
     references: List[Dict[str, Any]] = []
+    # ✅ new but backwards compatible
+    updated_public_md: Optional[str] = None
+    updated_private_md: Optional[str] = None
+    updated_fields: List[str] = []
+    questions_for_user: List[str] = []
 
 class AnswerUnansweredRequest(BaseModel):
     answer: str
@@ -27,6 +34,56 @@ class UpdateQARequest(BaseModel):
     visibility: Optional[str] = None
 
 
+def _editing_prompt(context: str, user_question: str) -> str:
+    return f"""
+You are an expert product-writing and editing assistant.
+
+USER REQUEST:
+{user_question}
+
+TASK:
+1) If the user is asking to change the page, produce revised PUBLIC markdown in `updated_public_md` (or null).
+2) If the request concerns private notes, produce revised PRIVATE markdown in `updated_private_md` (or null).
+3) Always provide a helpful natural-language `answer`.
+4) If you need more info, include up to 3 short clarifying questions in `questions_for_user`.
+
+Return ONLY valid JSON with this exact shape:
+{{
+  "answer": "string",
+  "updated_public_md": "string or null",
+  "updated_private_md": "string or null",
+  "questions_for_user": ["string", "string"]
+}}
+
+CONTEXT:
+{context}
+""".strip()
+
+def _safe_parse_llm_json(raw: str) -> Dict[str, Any]:
+    try:
+        data = json.loads(raw)
+        if not isinstance(data, dict):
+            raise ValueError("Not an object")
+    except Exception:
+        # fall back to plain text answer
+        return {
+            "answer": raw if isinstance(raw, str) else "",
+            "updated_public_md": None,
+            "updated_private_md": None,
+            "questions_for_user": [],
+        }
+
+    # fill defaults
+    data.setdefault("answer", "")
+    data.setdefault("updated_public_md", None)
+    data.setdefault("updated_private_md", None)
+    q = data.get("questions_for_user", [])
+    if not isinstance(q, list):
+        q = []
+    data["questions_for_user"] = [str(s).strip() for s in q if str(s).strip()]
+    return data
+
+
 # ==== Routes ====
 
 @router.post("/ideas/{idea_id}/ask", response_model=AskResponse)
@@ -34,9 +91,9 @@ def ask_idea(
     idea_id: str,
     req: AskRequest,
     session: Session = Depends(db.get_session),
-    current_user: models.User = Depends(get_current_user)  # optional, could allow anon
+    current_user: models.User = Depends(get_current_user)  # keep auth
 ):
-    """Ask a question to an idea with short-term + persistent memory"""
+    """Ask a question to an idea. May edit markdown + add follow-up questions."""
     idea = session.query(models.Idea).get(idea_id)
     if not idea:
         raise HTTPException(status_code=404, detail="Idea not found")
@@ -53,7 +110,7 @@ def ask_idea(
         [f"Q: {h.question}\nA: {h.answer}" for h in reversed(history)]
     )
 
-    # Collect persistent Q&A repo items
+    # Persistent Q&A repo items
     qa_items = [
         f"Q: {r.name.replace('Q: ', '')}\nA: {r.content.replace('A: ', '')}"
         for r in idea.repo
@@ -61,12 +118,12 @@ def ask_idea(
     ]
     qa_items_text = "\n".join(qa_items)
 
-    # Collect assets
+    # Public assets
     assets_text = "\n".join(
         [f"- {a.title}: {a.url}" for a in idea.assets if a.visibility == "public"]
     )
 
-    # Build context
+    # Full context
     context = f"""
 # PUBLIC MARKDOWN
 {idea.public_md or ""}
@@ -82,43 +139,69 @@ def ask_idea(
 
 # PUBLIC ASSETS
 {assets_text}
-"""
+""".strip()
 
-    # Call LLM
-    raw_answer = ask_openai(context, req.question)
+    # Ask LLM for structured JSON (but we still accept plain text fallback)
+    raw = ask_openai(context=_editing_prompt(context, req.question), question="Propose edits + answer")
 
-    # If model can't answer → log in unanswered
-    if "i don't know" in raw_answer.lower() or "chat unavailable" in raw_answer.lower():
-        unanswered = models.UnansweredQuestion(
+    data = _safe_parse_llm_json(raw)
+    answer = data.get("answer") or ""
+    updated_public_md = data.get("updated_public_md")
+    updated_private_md = data.get("updated_private_md")
+    followups: List[str] = data.get("questions_for_user", [])
+
+    updated_fields: List[str] = []
+
+    # If the model couldn't answer, log to unanswered and reply as-is
+    if "i don't know" in answer.lower() or "chat unavailable" in answer.lower():
+        session.add(models.UnansweredQuestion(
             idea_id=idea.id,
             question=req.question,
             created_at=datetime.utcnow()
-        )
-        session.add(unanswered)
+        ))
         session.commit()
-        return AskResponse(answer=raw_answer, images=[], references=[])
+        return AskResponse(answer=answer, images=[], references=[], questions_for_user=followups)
 
-    # Otherwise → normal QAHistory
-    qa = models.QAHistory(
+    # Apply edits if present
+    if isinstance(updated_public_md, str) and updated_public_md.strip():
+        idea.public_md = updated_public_md.strip()
+        updated_fields.append("public_md")
+    if isinstance(updated_private_md, str) and updated_private_md.strip():
+        idea.private_md = updated_private_md.strip()
+        updated_fields.append("private_md")
+
+    session.commit()
+
+    # Save QA history
+    qa_row = models.QAHistory(
         idea_id=idea.id,
         question=req.question,
-        answer=raw_answer,
+        answer=answer,
         created_at=datetime.utcnow()
     )
-    session.add(qa)
+    session.add(qa_row)
+
+    # Persist follow-up questions (unanswered)
+    if followups:
+        for q in followups[:3]:
+            if q.strip():
+                session.add(models.UnansweredQuestion(
+                    idea_id=idea.id,
+                    question=q.strip(),
+                    created_at=datetime.utcnow()
+                ))
+
     session.commit()
 
     # Build response
     return AskResponse(
-        answer=raw_answer,
-        images=[
-            {"title": a.title, "url": a.url}
-            for a in idea.assets if a.visibility == "public"
-        ],
-        references=[
-            {"title": r.name, "url": r.url}
-            for r in idea.repo if r.visibility == "public"
-        ]
+        answer=answer,
+        images=[{"title": a.title, "url": a.url} for a in idea.assets if a.visibility == "public"],
+        references=[{"title": r.name, "url": r.url} for r in idea.repo if r.visibility == "public"],
+        updated_public_md=updated_public_md if "public_md" in updated_fields else None,
+        updated_private_md=updated_private_md if "private_md" in updated_fields else None,
+        updated_fields=updated_fields,
+        questions_for_user=followups,
     )
 
 

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 from typing import List, Optional
 from datetime import datetime
-import hashlib
+import hashlib, json
 
 import db, models
 from auth.main import get_current_user
@@ -58,7 +58,12 @@ def check_password(pw: str, hash_val: str) -> bool:
     return hash_password(pw) == hash_val
 
 
-def generate_markdown_from_submission(title: str, notes: Optional[str], links: Optional[List[str]], summary: Optional[str]):
+def generate_markdown_from_submission(
+    title: str,
+    notes: Optional[str],
+    links: Optional[List[str]],
+    summary: Optional[str],
+):
     context = f"""
 # TITLE
 {title}
@@ -72,7 +77,6 @@ def generate_markdown_from_submission(title: str, notes: Optional[str], links: O
 # LINKS
 {", ".join(links or [])}
 """
-
     public_prompt = f"Turn this into a clear, inspiring public-facing markdown page:\n{context}"
     private_prompt = f"Turn this into exhaustive private notes for the creator:\n{context}"
 
@@ -80,6 +84,43 @@ def generate_markdown_from_submission(title: str, notes: Optional[str], links: O
     private_md = ask_openai(private_prompt, "Generate private markdown page")
 
     return public_md, private_md, context
+
+
+def _safe_json_list(raw: str) -> List[str]:
+    try:
+        data = json.loads(raw)
+        if isinstance(data, list):
+            return [str(x).strip() for x in data if str(x).strip()]
+    except Exception:
+        pass
+    # fallback to lines
+    return [line.strip("-• ").strip() for line in raw.splitlines() if line.strip()]
+
+
+def generate_clarifying_questions(title: str, public_md: str, private_md: str) -> List[str]:
+    """
+    Ask the LLM for 3–5 short clarifying questions to improve the page.
+    """
+    prompt = f"""
+You are helping improve an idea page.
+
+TITLE: {title}
+
+PUBLIC MARKDOWN:
+{public_md or ""}
+
+PRIVATE MARKDOWN:
+{private_md or ""}
+
+Produce 3-5 short, specific clarifying questions that, if answered by the creator,
+would materially improve the public page. Return ONLY a valid JSON list of strings.
+Example:
+["Who is the target audience?", "What is the key outcome?", "What timeline do you have?"]
+""".strip()
+
+    raw = ask_openai(prompt, "Generate clarifying questions")
+    items = _safe_json_list(raw)
+    return items[:5]
 
 
 # ==== Routes ====
@@ -126,6 +167,20 @@ def create_idea(
     session.add(raw_repo_item)
     session.commit()
 
+    # 🔥 Seed unanswered clarifying questions (best-effort)
+    try:
+        qs = generate_clarifying_questions(idea.title, idea.public_md or "", idea.private_md or "")
+        for q in qs:
+            session.add(models.UnansweredQuestion(
+                idea_id=idea.id,
+                question=q,
+                created_at=datetime.utcnow()
+            ))
+        session.commit()
+    except Exception:
+        # don't fail creation on LLM hiccups
+        pass
+
     # Pydantic v2: model_validate + add owner_name
     return IdeaResponse.model_validate(idea, from_attributes=True).model_copy(
         update={"owner_name": current_user.name}
@@ -151,7 +206,7 @@ def get_idea(
         if not password or not check_password(password, idea.password_hash):
             raise HTTPException(status_code=403, detail="Password required or incorrect")
 
-    # ✅ attach owner_name here
+    # attach owner_name
     owner = session.query(models.User).get(idea.user_id)
     owner_name = owner.name if owner else None
 
