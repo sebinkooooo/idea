@@ -27,4 +27,10 @@ def get_shared_idea(
         if not password or not check_password(password, idea.password_hash):
             raise HTTPException(status_code=403, detail="Password required or incorrect")
 
-    return idea
+    # Attach public owner name so clients don't show "Anonymous"
+    owner = session.query(models.User).get(idea.user_id)
+    owner_name = owner.name if owner else None
+
+    return IdeaResponse.model_validate(idea, from_attributes=True).model_copy(
+        update={"owner_name": owner_name}
+    )
