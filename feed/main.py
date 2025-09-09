@@ -21,6 +21,7 @@ def get_feed(session: Session = Depends(db.get_session)):
 
     results: List[IdeaResponse] = []
     for idea in ideas:
+        # NOTE: Session.get() is preferred in modern SQLAlchemy, but .get() on query works too.
         owner = session.query(models.User).get(idea.user_id)
         owner_name = owner.name if owner else None
         results.append(
@@ -44,7 +45,6 @@ def get_my_feed(
         .all()
     )
 
-    # owner is the current user, but we still populate owner_name for consistency
     results: List[IdeaResponse] = []
     for idea in ideas:
         results.append(
