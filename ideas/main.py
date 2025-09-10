@@ -58,27 +58,76 @@ def check_password(pw: str, hash_val: str) -> bool:
     return hash_password(pw) == hash_val
 
 
+def generate_title(
+    title: str,
+    notes: Optional[str],
+    links: Optional[List[str]],
+    summary: Optional[str],
+) -> str:
+    """
+    Ask LLM for a concise, compelling title (<= 60 chars), no quotes/punctuation at the end.
+    """
+    context = f"""
+TITLE (user-supplied): {title or ""}
+SUMMARY: {summary or ""}
+NOTES: {notes or ""}
+LINKS: {", ".join(links or [])}
+""".strip()
+
+    prompt = f"""
+Craft a concise, compelling idea title (≤ 60 characters) from the context below.
+Avoid trailing punctuation and do not wrap in quotes. Return ONLY the title text.
+
+Context:
+{context}
+""".strip()
+
+    t = ask_openai(prompt, "Generate idea title").strip()
+    return t.replace("\n", " ").strip().strip('"').strip("'")
+
+
 def generate_markdown_from_submission(
     title: str,
     notes: Optional[str],
     links: Optional[List[str]],
     summary: Optional[str],
 ):
+    # Note: We pass the final title in "context" but instruct the model to avoid a top-level H1.
     context = f"""
-# TITLE
+TITLE
 {title}
 
-# SUMMARY
+SUMMARY
 {summary or ""}
 
-# NOTES
+NOTES
 {notes or ""}
 
-# LINKS
+LINKS
 {", ".join(links or [])}
 """
-    public_prompt = f"Turn this into a clear, inspiring public-facing markdown page:\n{context}"
-    private_prompt = f"Turn this into exhaustive private notes for the creator:\n{context}"
+
+    public_prompt = f"""
+Turn this into a clear, inspiring public-facing markdown page.
+
+Rules:
+- Do NOT include a top-level H1 title at the start (the app renders the title separately).
+- Start with a short value-focused intro paragraph (no heading).
+- Use section headings starting from '##' (H2) and below.
+- Keep it crisp and scannable.
+
+Source context:
+{context}
+""".strip()
+
+    private_prompt = f"""
+Turn this into exhaustive private notes for the creator.
+- Include assumptions, risks, open questions, KPIs, draft milestones.
+- Use markdown with '##' and lower. Avoid a top-level H1.
+
+Source context:
+{context}
+""".strip()
 
     public_md = ask_openai(public_prompt, "Generate public markdown page")
     private_md = ask_openai(private_prompt, "Generate private markdown page")
@@ -131,9 +180,13 @@ def create_idea(
     session: Session = Depends(db.get_session),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Create a new idea from raw submission (AI generates markdown)"""
+    """Create a new idea from raw submission (AI generates title + markdown)"""
+    # 1) Generate an improved title
+    final_title = generate_title(req.title, req.notes, req.links, req.summary)
+
+    # 2) Generate markdown that explicitly omits a top-level H1
     public_md, private_md, raw_context = generate_markdown_from_submission(
-        req.title, req.notes, req.links, req.summary
+        final_title, req.notes, req.links, req.summary
     )
 
     password_hash = None
@@ -144,8 +197,8 @@ def create_idea(
 
     idea = models.Idea(
         user_id=current_user.id,
-        title=req.title,
-        public_md=public_md,
+        title=final_title,           # <— use the improved title
+        public_md=public_md,         # <— no H1 inside
         private_md=private_md,
         visibility=req.visibility,
         password_hash=password_hash,
