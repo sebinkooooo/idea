@@ -22,6 +22,7 @@ class AskResponse(BaseModel):
     # When the model proposes doc changes, include them (client may preview)
     updated_public_md: Optional[str] = None
     updated_private_md: Optional[str] = None
+    updated_title: Optional[str] = None  # NEW
 
 class AnswerUnansweredRequest(BaseModel):
     answer: str
@@ -34,7 +35,10 @@ class UpdateQARequest(BaseModel):
 # ==== Utils ====
 
 SECTION_RE = re.compile(
-    r"(?is)^\s*ANSWER:\s*(?P<answer>.*?)\n(?:UPDATED_PUBLIC_MD:\s*(?P<pub>.*?)\n)?(?:UPDATED_PRIVATE_MD:\s*(?P<priv>.*))?\s*$"
+    r"(?is)^\s*ANSWER:\s*(?P<answer>.*?)\n"
+    r"(?:UPDATED_TITLE:\s*(?P<title>.*?)\n)?"
+    r"(?:UPDATED_PUBLIC_MD:\s*(?P<pub>.*?)\n)?"
+    r"(?:UPDATED_PRIVATE_MD:\s*(?P<priv>.*))?\s*$"
 )
 
 def parse_structured_answer(raw: str) -> Dict[str, Optional[str]]:
@@ -42,6 +46,8 @@ def parse_structured_answer(raw: str) -> Dict[str, Optional[str]]:
     Expect the LLM to follow this template:
 
     ANSWER: <short direct reply>
+
+    UPDATED_TITLE: <new concise title or leave empty if no change>
 
     UPDATED_PUBLIC_MD:
     <full markdown or leave empty if no change>
@@ -52,11 +58,12 @@ def parse_structured_answer(raw: str) -> Dict[str, Optional[str]]:
     m = SECTION_RE.match(raw.strip())
     if not m:
         # fallback: use entire response as answer
-        return {"answer": raw.strip(), "pub": None, "priv": None}
+        return {"answer": raw.strip(), "title": None, "pub": None, "priv": None}
     ans = (m.group("answer") or "").strip()
+    title = (m.group("title") or "").strip() or None
     pub = (m.group("pub") or "").strip() or None
     priv = (m.group("priv") or "").strip() or None
-    return {"answer": ans, "pub": pub, "priv": priv}
+    return {"answer": ans, "title": title, "pub": pub, "priv": priv}
 
 
 # ==== Authenticated (owner) route: persists edits if owner ====
@@ -89,36 +96,43 @@ def ask_idea(
         for r in idea.repo
         if r.type == "qa" and r.visibility in ["public", "private"]
     ]
-    qa_items_text = "\n".join(qa_items)
+    qa_items_text = "\n".Join(qa_items) if False else "\n".join(qa_items)  # safeguard if case changes
 
     # Assets (public)
     assets_text = "\n".join(f"- {a.title}: {a.url}" for a in idea.assets if a.visibility == "public")
 
     # Owner context includes both public and private
     context = f"""
-You are the *living document* for the idea below. You can:
-1) Answer questions concisely.
-2) If the user asks to make changes to the public or private markdown, you should output the FULL updated markdown.
+You are the *living document* for the idea below.
+Your goals every turn:
+1) Answer the user's message concisely.
+2) Identify gaps and (if needed) ask 1–3 short clarifying questions.
+3) If the user supplied new info or asked for edits, output the FULL updated markdown (public/private).
+4) If an improved title would help, propose one (≤ 60 chars, no trailing punctuation).
 
-IMPORTANT: Always respond in the *exact* template below.
-- Put a short human-friendly reply under ANSWER.
-- If no markdown changes are needed, leave those sections empty (blank).
+IMPORTANT RULES:
+- The app renders the title separately. In your markdown outputs, DO NOT include a top-level H1.
+- Start public markdown with a short intro paragraph (no heading), then use headings from '##' and below.
+- If no change is needed in a section, leave it completely empty.
 
-TEMPLATE (do not add extra text outside these sections):
+TEMPLATE (exactly this; no extra text before/after):
 
 ANSWER:
-<short answer to the user's message>
+<short answer or your questions to the user>
+
+UPDATED_TITLE:
+<concise improved title or leave empty if no change>
 
 UPDATED_PUBLIC_MD:
-<full markdown for the public page, or leave empty if no change>
+<full public markdown without a top-level H1, or leave empty if no change>
 
 UPDATED_PRIVATE_MD:
-<full markdown for the private notes, or leave empty if no change>
+<full private markdown without a top-level H1, or leave empty if no change>
 
-# PUBLIC MARKDOWN
+# CURRENT PUBLIC MARKDOWN
 {idea.public_md or ""}
 
-# PRIVATE MARKDOWN
+# CURRENT PRIVATE MARKDOWN
 {idea.private_md or ""}
 
 # PERSISTENT QA
@@ -129,7 +143,7 @@ UPDATED_PRIVATE_MD:
 
 # PUBLIC ASSETS
 {assets_text}
-"""
+""".strip()
 
     raw = ask_openai(context, req.question)
     if "[Chat unavailable]" in raw or "[Chat error" in raw:
@@ -143,6 +157,7 @@ UPDATED_PRIVATE_MD:
 
     parsed = parse_structured_answer(raw)
     answer = parsed["answer"] or "OK."
+    updated_title = parsed["title"]
     updated_public_md = parsed["pub"]
     updated_private_md = parsed["priv"]
 
@@ -159,12 +174,21 @@ UPDATED_PRIVATE_MD:
         ))
 
     # Persist proposed edits only if caller owns the idea
-    if (updated_public_md or updated_private_md) and current_user.id == idea.user_id:
+    if current_user.id == idea.user_id:
+        changed = False
+        if updated_title and updated_title.strip() and updated_title.strip() != idea.title:
+            idea.title = updated_title.strip()
+            changed = True
         if updated_public_md:
             idea.public_md = updated_public_md
+            changed = True
         if updated_private_md:
             idea.private_md = updated_private_md
-        session.commit()  # commit both QA and edits in one go
+            changed = True
+        if changed:
+            session.commit()  # commit both QA and edits in one go
+        else:
+            session.commit()
     else:
         session.commit()
 
@@ -174,6 +198,7 @@ UPDATED_PRIVATE_MD:
         references=[{"title": r.name, "url": r.url} for r in idea.repo if r.visibility == "public"],
         updated_public_md=updated_public_md,
         updated_private_md=updated_private_md,
+        updated_title=updated_title,
     )
 
 
@@ -200,13 +225,11 @@ def ask_shared_idea(
         raise HTTPException(status_code=403, detail="This idea is private and cannot be shared")
 
     if idea.visibility == "password":
-        # Reuse the same helper as share GET endpoint (if you have one)
         from ideas.main import check_password  # lazy import to avoid circulars
         if not password or not check_password(password, idea.password_hash):
             raise HTTPException(status_code=403, detail="Password required or incorrect")
 
-    # Build minimal, public-only context
-    # Recent Q&A (only keep public facing answers if you tag them; otherwise keep short history or none)
+    # Recent public Q&A (short)
     history = (
         session.query(models.QAHistory)
         .filter(models.QAHistory.idea_id == idea.id)
@@ -227,27 +250,31 @@ def ask_shared_idea(
     # Public assets only
     assets_text = "\n".join(f"- {a.title}: {a.url}" for a in idea.assets if a.visibility == "public")
 
-    # IMPORTANT: Do NOT include private_md here.
     context = f"""
 You are the *public-facing* living document for the idea below.
 Answer questions concisely. If the user requests edits to the public page,
 you may propose the FULL updated public markdown. Do not include any private content.
 
-IMPORTANT: Always respond in the *exact* template below.
-If no markdown changes are needed, leave those sections empty (blank).
+IMPORTANT RULES:
+- The app renders the title separately. Do NOT include a top-level H1 in markdown.
+- Start with a short intro paragraph (no heading), then use headings from '##' and below.
+- Do not propose title changes in public context.
 
-TEMPLATE (do not add extra text outside these sections):
+TEMPLATE (exactly this):
 
 ANSWER:
 <short answer to the user's message>
 
+UPDATED_TITLE:
+<leave empty — not available in public context>
+
 UPDATED_PUBLIC_MD:
-<full markdown for the public page, or leave empty if no change>
+<full public markdown (no top-level H1), or leave empty if no change>
 
 UPDATED_PRIVATE_MD:
 <leave empty — not available in public context>
 
-# PUBLIC MARKDOWN
+# CURRENT PUBLIC MARKDOWN
 {idea.public_md or ""}
 
 # PUBLIC PERSISTENT QA
@@ -258,7 +285,7 @@ UPDATED_PRIVATE_MD:
 
 # PUBLIC ASSETS
 {assets_text}
-"""
+""".strip()
 
     raw = ask_openai(context, req.question)
     if "[Chat unavailable]" in raw or "[Chat error" in raw:
@@ -280,7 +307,8 @@ UPDATED_PRIVATE_MD:
         images=[{"title": a.title, "url": a.url} for a in idea.assets if a.visibility == "public"],
         references=[{"title": r.name, "url": r.url} for r in idea.repo if r.visibility == "public"],
         updated_public_md=updated_public_md,
-        updated_private_md=None,  # never returned in public context
+        updated_private_md=None,
+        updated_title=None,
     )
 
 
@@ -364,18 +392,18 @@ def update_persistent_qa(
 ):
     idea = session.query(models.Idea).get(idea_id)
     if not idea:
-        raise HTTPException(status_code=404, detail="Idea not found")
+      raise HTTPException(status_code=404, detail="Idea not found")
     if idea.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not your idea")
+      raise HTTPException(status_code=403, detail="Not your idea")
 
     repo_item = session.query(models.RepoItem).get(qa_id)
     if not repo_item or repo_item.idea_id != idea.id or repo_item.type != "qa":
-        raise HTTPException(status_code=404, detail="QA repo item not found")
+      raise HTTPException(status_code=404, detail="QA repo item not found")
 
     if req.answer:
-        repo_item.content = f"A: {req.answer}"
+      repo_item.content = f"A: {req.answer}"
     if req.visibility:
-        repo_item.visibility = req.visibility
+      repo_item.visibility = req.visibility
 
     session.commit()
     return {"detail": "Persistent QA updated"}
@@ -389,13 +417,13 @@ def delete_persistent_qa(
 ):
     idea = session.query(models.Idea).get(idea_id)
     if not idea:
-        raise HTTPException(status_code=404, detail="Idea not found")
+      raise HTTPException(status_code=404, detail="Idea not found")
     if idea.user_id != current_user.id:
-        raise HTTPException(status_code=403, detail="Not your idea")
+      raise HTTPException(status_code=403, detail="Not your idea")
 
     repo_item = session.query(models.RepoItem).get(qa_id)
     if not repo_item or repo_item.idea_id != idea.id or repo_item.type != "qa":
-        raise HTTPException(status_code=404, detail="QA repo item not found")
+      raise HTTPException(status_code=404, detail="QA repo item not found")
 
     session.delete(repo_item)
     session.commit()
