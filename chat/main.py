@@ -367,40 +367,42 @@ def answer_unanswered(
     from chat.openai_helper import ask_openai
 
     refine_prompt = f"""
-You are updating the idea’s markdown.
+You are updating the idea’s markdown after a new clarification.
 
-Current PUBLIC MARKDOWN:
+### RULES
+- Incorporate the clarification below into the markdowns.
+- Do NOT invent extra details.
+- Only adjust where the clarification fits.
+- DO NOT just stick it into a Q&A section; integrate it naturally.
+- Output exactly and only the following format, with clear markers:
+    ### PUBLIC_MD_START
+    <updated public markdown (no H1)>
+    ### PUBLIC_MD_END
+    ### PRIVATE_MD_START
+    <updated private markdown (no H1)>
+    ### PRIVATE_MD_END
+- If no change is needed, output the existing markdown between the markers.
+
+### CURRENT PUBLIC MARKDOWN
 {idea.public_md or ""}
 
-Current PRIVATE MARKDOWN:
+### CURRENT PRIVATE MARKDOWN
 {idea.private_md or ""}
 
-New clarification:
+### NEW CLARIFICATION
 Q: {uq.question}
 A: {req.answer}
-
-Update the markdowns by incorporating this clarification.
-Do not invent extra details. Only adjust where the clarification fits.
-Return the two markdowns in this format:
-
-PUBLIC_MD:
-<updated markdown>
-
-PRIVATE_MD:
-<updated markdown>
-
-Do not just stick it into the Permanent QA section; integrate it naturally.
 """
 
     raw = ask_openai(refine_prompt, "Refine markdowns with clarification")
 
-    if "PRIVATE_MD:" not in raw:
+    import re
+    m_pub = re.search(r"### PUBLIC_MD_START\n(.*?)\n### PUBLIC_MD_END", raw, re.DOTALL)
+    m_priv = re.search(r"### PRIVATE_MD_START\n(.*?)\n### PRIVATE_MD_END", raw, re.DOTALL)
+    if not m_pub or not m_priv:
         raise HTTPException(status_code=500, detail=f"Invalid LLM output:\n{raw}")
-
-    public_updated, private_updated = raw.split("PRIVATE_MD:", 1)
-
-    idea.public_md = public_updated.replace("PUBLIC_MD:", "").strip()
-    idea.private_md = private_updated.strip()
+    idea.public_md = m_pub.group(1).strip()
+    idea.private_md = m_priv.group(1).strip()
 
     # 3. Remove unanswered
     session.delete(uq)
