@@ -89,6 +89,16 @@ PRIVATE MARKDOWN:
 Produce 3–5 short, specific clarifying questions that, if answered by the creator,
 would materially improve the public page. Return ONLY a valid JSON list of strings.
 Make sure that the dieas are really relevant to the notes and not generic. 
+
+Example:
+Example:
+["Who exactly is the target audience?", 
+ "What problem does this idea solve in practice?", 
+ "Which resources are required to test the idea?", 
+ "What timeline do you expect for first results?", 
+ "What risks or blockers do you anticipate?"]
+
+ Make sure your questions are much less generic than the example above.
 """.strip()
 
     raw = ask_openai(prompt, "Generate clarifying questions")

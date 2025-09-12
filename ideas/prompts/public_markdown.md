@@ -9,6 +9,7 @@ Rules:
 - Use headings starting from ## (H2) and below.
 - If information seems incomplete, phrase it clearly but do not remove it.
 - Keep as much detail as possible, just restructured for clarity.
+- Make the markdown as simple as possible. Dont change the users words too much, and keep similiar length. Just enhance flow.
 
 Source
-{{Context}}
+{{context}}
