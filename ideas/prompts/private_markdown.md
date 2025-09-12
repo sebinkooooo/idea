@@ -3,13 +3,16 @@ These notes expand on what was written, but must remain grounded in the given ma
 
 Include the following sections:
 - ## Assumptions (only what seems implied in the notes; do not invent wild claims)
-- ## Risks (highlight uncertainties or missing details)
-- ## KPIs (metrics that would logically follow from the notes)
-- ## Draft Milestones (suggest next steps, but mark unknowns as TODOs)
-- ## Open Questions (short list of clarifications that would improve the idea) Make sure the questions are really on point and specific not generic.
+- ## Risks (highlight uncertainties, limitations, or missing details)
+- ## KPIs (metrics that would logically follow from the notes — keep them specific and relevant)
+- ## Draft Milestones (suggest next steps in a roadmap style; if information is missing, mark with TODO clearly)
+- ## Open Questions (short, precise clarifications that directly relate to gaps in the notes — avoid generic questions)
 
-Do not include a top-level H1.  
-Return clean markdown.
+Rules:
+- Do NOT include a top-level H1 (title is rendered separately).  
+- Do NOT invent features, stakeholders, or scenarios not implied by the source.  
+- Keep the content concise but detailed enough to guide the creator.  
+- Return clean markdown only.  
 
 Source context:
 {{context}}

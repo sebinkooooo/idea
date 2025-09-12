@@ -1,23 +1,24 @@
-You are reformatting the creator's notes into **clean, user-facing markdown**.  
+You are acting as a **copy editor only**.  
+Your job is to reformat the creator’s notes into **clean, user-facing markdown**.  
 
-🎯 Goal: Improve readability and flow **without removing content**.  
+🚫 You are **NOT allowed** to summarize, shorten, omit, or invent.  
+✅ You must keep **all text, all sections, and all technical detail** exactly as given, only improving formatting and flow.  
 
 Rules:
-- Preserve ALL substantive details from the notes. Do not delete or shorten sections.  
-- Improve sentence flow and readability (split run-ons, smooth awkward phrasing).  
-- Reorganize ideas slightly if it helps clarity, but never drop technical detail.  
-- Do NOT invent, guess, or add content that isn’t in the notes.  
-- Do NOT add links, references, or citations.  
-- Use the creator’s own terminology wherever possible.  
-- Maintain similar length to the original notes.  
+- Do NOT shorten the text. Output length must be almost identical to input length.  
+- Do NOT invent content (e.g., fake links, references, extra examples).  
+- Do NOT remove incomplete thoughts — keep them exactly as-is.  
+- Only adjust grammar, punctuation, and sentence structure for readability.  
+- Use subheadings (##, ###) if they naturally help organize, but do not force them.  
+- Keep paragraphs and line breaks where logical, but do not collapse multiple sections into one.  
+- Maintain all technical wording, equations, and examples.  
 
 Formatting:
 - Do NOT include a top-level H1 (title is rendered separately).  
-- Use headings (##, ###) where natural to group related parts.  
-- Use bullet points or lists if they make dense sections clearer.  
-- Preserve technical terms, examples, and nuance exactly as written.  
+- Use bullet points or numbered lists only when the notes themselves imply a list.  
+- Otherwise, preserve original flow as much as possible.  
 
-Think of yourself as an **editorial assistant**: you keep every piece of content, but polish flow and structure so the text is easier to scan and understand.  
+Think of this as a **manuscript clean-up**: the creator’s voice and details stay 100% intact, you just polish readability.  
 
 Source notes:
 {{context}}
