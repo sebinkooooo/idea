@@ -1,6 +1,6 @@
 # backend/ideas/ai_helper.py
 from typing import List, Optional
-from backend.chat.openai_helper import ask_openai
+from chat.openai_helper import ask_openai
 
 def generate_title(title: str, notes: Optional[str], links: Optional[List[str]], summary: Optional[str]) -> str:
     context = f"""
