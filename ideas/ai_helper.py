@@ -21,10 +21,23 @@ Context:
     t = ask_openai(prompt, "Generate idea title").strip()
     return t.replace("\n", " ").strip().strip('"').strip("'")
 
-def generate_markdown_from_submission(final_title: str, notes: Optional[str], links: Optional[List[str]], summary: Optional[str]):
+import pathlib
+
+PROMPT_DIR = pathlib.Path(__file__).parent / "prompts"
+
+def _load_prompt(name: str) -> str:
+    path = PROMPT_DIR / name
+    return path.read_text(encoding="utf-8")
+
+def generate_markdown_from_submission(
+    title: str,
+    notes: Optional[str],
+    links: Optional[List[str]],
+    summary: Optional[str],
+):
     context = f"""
 TITLE
-{final_title}
+{title}
 
 SUMMARY
 {summary or ""}
@@ -34,31 +47,17 @@ NOTES
 
 LINKS
 {", ".join(links or [])}
-"""
-
-    public_prompt = f"""
-Turn this into a clear, inspiring public-facing markdown page.
-
-Rules:
-- Do NOT include a top-level H1 title at the start (the app renders the title separately).
-- Start with a short value-focused intro paragraph (no heading).
-- Use section headings starting from '##' (H2) and below.
-- Keep it crisp and scannable.
-
-Source context:
-{context}
 """.strip()
 
-    private_prompt = f"""
-Turn this into exhaustive private notes for the creator.
-- Include assumptions, risks, open questions, KPIs, draft milestones.
-- Use markdown with '##' and lower. Avoid a top-level H1.
+    # Load prompt templates
+    public_template = _load_prompt("public_markdown.md")
+    private_template = _load_prompt("private_markdown.md")
 
-Source context:
-{context}
-""".strip()
+    # Fill in context
+    public_prompt = public_template.replace("{{context}}", context)
+    private_prompt = private_template.replace("{{context}}", context)
 
-    public_md = ask_openai(public_prompt, "Generate public markdown page")
-    private_md = ask_openai(private_prompt, "Generate private markdown page")
+    public_md = ask_openai(public_prompt, "Generate public markdown v1")
+    private_md = ask_openai(private_prompt, "Generate private markdown v1")
 
-    return public_md, private_md, context
+    return public_md.strip(), private_md.strip(), context

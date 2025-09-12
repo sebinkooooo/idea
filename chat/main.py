@@ -336,9 +336,8 @@ def answer_unanswered(
     uq_id: str,
     req: AnswerUnansweredRequest,
     session: Session = Depends(db.get_session),
-    current_user: models.User = Depends(get_current_user)
+    current_user: models.User = Depends(get_current_user),
 ):
-    """Creator supplies an answer for a previously unanswered question"""
     idea = session.query(models.Idea).get(idea_id)
     if not idea:
         raise HTTPException(status_code=404, detail="Idea not found")
@@ -349,25 +348,60 @@ def answer_unanswered(
     if not uq or uq.idea_id != idea.id:
         raise HTTPException(status_code=404, detail="Unanswered question not found")
 
-    # Add to QAHistory
+    # 1. Save to QAHistory + Repo
     qa = models.QAHistory(
         idea_id=idea.id, question=uq.question, answer=req.answer, created_at=datetime.utcnow()
     )
     session.add(qa)
 
-    # Add to Repo (persistent knowledge base)
     repo_item = models.RepoItem(
-        idea_id=idea.id, name=f"Q: {uq.question}", type="qa",
-        content=f"A: {req.answer}", visibility="private"
+        idea_id=idea.id,
+        name=f"Q: {uq.question}",
+        type="qa",
+        content=f"A: {req.answer}",
+        visibility="private"
     )
     session.add(repo_item)
 
-    # Remove unanswered
+    # 2. Regenerate markdown with new info
+    from chat.openai_helper import ask_openai
+
+    refine_prompt = f"""
+You are updating the idea’s markdown.
+
+Current PUBLIC MARKDOWN:
+{idea.public_md or ""}
+
+Current PRIVATE MARKDOWN:
+{idea.private_md or ""}
+
+New clarification:
+Q: {uq.question}
+A: {req.answer}
+
+Update the markdowns by incorporating this clarification.
+Do not invent extra details. Only adjust where the clarification fits.
+Return the two markdowns in this format:
+
+PUBLIC_MD:
+<updated markdown>
+
+PRIVATE_MD:
+<updated markdown>
+"""
+
+    raw = ask_openai(refine_prompt, "Refine markdowns with clarification")
+    # simple parse (could be regexed like parse_structured_answer)
+    public_updated, private_updated = raw.split("PRIVATE_MD:")
+
+    idea.public_md = public_updated.replace("PUBLIC_MD:", "").strip()
+    idea.private_md = private_updated.strip()
+
+    # 3. Remove unanswered
     session.delete(uq)
     session.commit()
 
-    return {"detail": "Unanswered question resolved and added to knowledge base"}
-
+    return {"detail": "Unanswered resolved, markdown updated"}
 
 @router.get("/ideas/{idea_id}/qa")
 def list_persistent_qa(

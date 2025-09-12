@@ -1,4 +1,4 @@
-# ideas/main.py
+# backend/ideas/main.py
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
@@ -8,7 +8,7 @@ import hashlib, json
 
 import db, models
 from auth.main import get_current_user
-from chat.openai_helper import ask_openai
+from ideas.ai_helper import generate_title, generate_markdown_from_submission
 
 router = APIRouter()
 
@@ -58,83 +58,6 @@ def check_password(pw: str, hash_val: str) -> bool:
     return hash_password(pw) == hash_val
 
 
-def generate_title(
-    title: str,
-    notes: Optional[str],
-    links: Optional[List[str]],
-    summary: Optional[str],
-) -> str:
-    """
-    Ask LLM for a concise, compelling title (<= 60 chars), no quotes/punctuation at the end.
-    """
-    context = f"""
-TITLE (user-supplied): {title or ""}
-SUMMARY: {summary or ""}
-NOTES: {notes or ""}
-LINKS: {", ".join(links or [])}
-""".strip()
-
-    prompt = f"""
-Craft a concise, compelling idea title (≤ 60 characters) from the context below.
-Avoid trailing punctuation and do not wrap in quotes. Return ONLY the title text.
-
-Context:
-{context}
-""".strip()
-
-    t = ask_openai(prompt, "Generate idea title").strip()
-    return t.replace("\n", " ").strip().strip('"').strip("'")
-
-
-def generate_markdown_from_submission(
-    title: str,
-    notes: Optional[str],
-    links: Optional[List[str]],
-    summary: Optional[str],
-):
-    # Note: We pass the final title in "context" but instruct the model to avoid a top-level H1.
-    context = f"""
-TITLE
-{title}
-
-SUMMARY
-{summary or ""}
-
-NOTES
-{notes or ""}
-
-LINKS
-{", ".join(links or [])}
-"""
-
-    public_prompt = f"""
-Turn this into a clear, inspiring public-facing markdown page.
-
-Rules:
-- Do NOT include a top-level H1 title at the start (the app renders the title separately).
-- Start with a short value-focused intro paragraph (no heading).
-- Use section headings starting from '##' (H2) and below.
-- Keep it crisp and scannable.
-
-Source context:
-{context}
-""".strip()
-
-    private_prompt = f"""
-Turn this into exhaustive private notes for the creator.
-- Include assumptions, risks, open questions, KPIs, draft milestones.
-- Use markdown with '##' and lower. Avoid a top-level H1.
-
-Source context:
-{context}
-""".strip()
-
-    public_md = ask_openai(public_prompt, "Generate public markdown page")
-    private_md = ask_openai(private_prompt, "Generate private markdown page")
-
-    return public_md, private_md, context
-
-
 def _safe_json_list(raw: str) -> List[str]:
     try:
         data = json.loads(raw)
@@ -150,6 +73,8 @@ def generate_clarifying_questions(title: str, public_md: str, private_md: str) -
     """
     Ask the LLM for 3–5 short clarifying questions to improve the page.
     """
+    from chat.openai_helper import ask_openai
+
     prompt = f"""
 You are helping improve an idea page.
 
@@ -161,7 +86,7 @@ PUBLIC MARKDOWN:
 PRIVATE MARKDOWN:
 {private_md or ""}
 
-Produce 3-5 short, specific clarifying questions that, if answered by the creator,
+Produce 3–5 short, specific clarifying questions that, if answered by the creator,
 would materially improve the public page. Return ONLY a valid JSON list of strings.
 Example:
 ["Who is the target audience?", "What is the key outcome?", "What timeline do you have?"]
