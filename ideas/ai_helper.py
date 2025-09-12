@@ -35,29 +35,28 @@ def generate_markdown_from_submission(
     links: Optional[List[str]],
     summary: Optional[str],
 ):
-    context = f"""
-TITLE
-{title}
-
-SUMMARY
-{summary or ""}
-
-NOTES
-{notes or ""}
-
-LINKS
-{", ".join(links or [])}
-""".strip()
+    # Build context for storage (just user-provided values, no headers or fillers)
+    context_parts = []
+    if summary and summary.strip():
+        context_parts.append(summary.strip())
+    if notes and notes.strip():
+        context_parts.append(notes.strip())
+    if links:
+        links_str = ", ".join([l.strip() for l in links if l and l.strip()])
+        if links_str:
+            context_parts.append(links_str)
+    raw_context = "\n\n".join(context_parts).strip()
+    llm_context = raw_context
 
     # Load prompt templates
     public_template = _load_prompt("public_markdown.md")
     private_template = _load_prompt("private_markdown.md")
 
-    # Fill in context
-    public_prompt = public_template.replace("{{context}}", context)
-    private_prompt = private_template.replace("{{context}}", context)
+    # Fill in context for LLM
+    public_prompt = public_template.replace("{{context}}", llm_context)
+    private_prompt = private_template.replace("{{context}}", llm_context)
 
     public_md = ask_openai(public_prompt, "Generate public markdown v1")
     private_md = ask_openai(private_prompt, "Generate private markdown v1")
 
-    return public_md.strip(), private_md.strip(), context
+    return public_md.strip(), private_md.strip(), raw_context
