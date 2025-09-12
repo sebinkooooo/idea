@@ -60,7 +60,11 @@ def check_password(pw: str, hash_val: str) -> bool:
 
 def _safe_json_list(raw: str) -> List[str]:
     try:
-        data = json.loads(raw)
+        txt = raw.strip()
+        if txt.startswith("```") and txt.endswith("```"):
+            # remove wrapping code fences
+            txt = "\n".join(txt.splitlines()[1:-1]).strip()
+        data = json.loads(txt)
         if isinstance(data, list):
             return [str(x).strip() for x in data if str(x).strip()]
     except Exception:
@@ -87,18 +91,11 @@ PRIVATE MARKDOWN:
 {private_md or ""}
 
 Produce 3–5 short, specific clarifying questions that, if answered by the creator,
-would materially improve the public page. Return ONLY a valid JSON list of strings.
-Make sure that the dieas are really relevant to the notes and not generic. 
+would materially improve the public page.
 
+CRITICAL: Return ONLY a valid JSON array of strings, with no extra text, no preamble, no code fences.
 Example:
-Example:
-["Who exactly is the target audience?", 
- "What problem does this idea solve in practice?", 
- "Which resources are required to test the idea?", 
- "What timeline do you expect for first results?", 
- "What risks or blockers do you anticipate?"]
-
- Make sure your questions are much less generic than the example above.
+["Who exactly is the target audience?", "What problem does this idea solve in practice?", "Which resources are required to test the idea?"]
 """.strip()
 
     raw = ask_openai(prompt, "Generate clarifying questions")
