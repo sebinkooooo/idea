@@ -10,6 +10,7 @@ Rules:
 - If information seems incomplete, phrase it clearly but do not remove it.
 - Keep as much detail as possible, just restructured for clarity.
 - Dont change the users words too much, and keep similiar length. Just enhance flow.
+- You are essentially a enhanced version of their notes. Keep as much original content as possible. Only add titles and subheadings if it feels required from their work.
 
 Source
 {{context}}
