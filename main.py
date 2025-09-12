@@ -27,12 +27,11 @@ app = FastAPI(title="Living Ideas API", version="0.2")
 # Register routers
 app.include_router(auth_router.router, prefix="/auth", tags=["Auth"])
 app.include_router(ideas_router.router, prefix="/ideas", tags=["Ideas"])
-app.include_router(chat_router.router, prefix="/chat", tags=["Chat"])
 app.include_router(assets_router.router, prefix="/assets", tags=["Assets"])
 app.include_router(feed_router.router, prefix="/feed", tags=["Feed"])
 app.include_router(home_router.router, prefix="/home", tags=["Home"])
 app.include_router(share_router.router, prefix="/share", tags=["Share"])
-
+app.include_router(chat_router.router, tags=["Chat"])
 
 @app.get("/")
 def root():
