@@ -393,8 +393,11 @@ Do not just stick it into the Permanent QA section; integrate it naturally.
 """
 
     raw = ask_openai(refine_prompt, "Refine markdowns with clarification")
-    # simple parse (could be regexed like parse_structured_answer)
-    public_updated, private_updated = raw.split("PRIVATE_MD:")
+
+    if "PRIVATE_MD:" not in raw:
+        raise HTTPException(status_code=500, detail=f"Invalid LLM output:\n{raw}")
+
+    public_updated, private_updated = raw.split("PRIVATE_MD:", 1)
 
     idea.public_md = public_updated.replace("PUBLIC_MD:", "").strip()
     idea.private_md = private_updated.strip()
