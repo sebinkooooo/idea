@@ -369,19 +369,28 @@ def answer_unanswered(
     refine_prompt = f"""
 You are updating the idea’s markdown after a new clarification.
 
-### RULES
-- Incorporate the clarification below into the markdowns.
-- Do NOT invent extra details.
-- Only adjust where the clarification fits.
-- DO NOT just stick it into a Q&A section; integrate it naturally.
-- Output exactly and only the following format, with clear markers:
-    ### PUBLIC_MD_START
-    <updated public markdown (no H1)>
-    ### PUBLIC_MD_END
-    ### PRIVATE_MD_START
-    <updated private markdown (no H1)>
-    ### PRIVATE_MD_END
-- If no change is needed, output the existing markdown between the markers.
+### CRITICAL INSTRUCTIONS
+You must output in a rigid format. If you deviate, your output will be rejected.
+
+1. Read the clarification (Q and A).
+2. Update the PUBLIC and PRIVATE markdowns by naturally incorporating the clarification. 
+   - Do not invent details.
+   - If no change is needed, output the existing markdowns unchanged.
+3. Output EXACTLY in the following structure with the markers shown. No extra text, no commentary, no headings outside the markers.
+
+### OUTPUT EXAMPLE (follow this format exactly)
+
+### PUBLIC_MD_START
+This is the updated **public** markdown.
+It contains whatever new info is needed, written naturally.
+### PUBLIC_MD_END
+### PRIVATE_MD_START
+This is the updated **private** markdown.
+It may contain sensitive or more detailed notes for the owner.
+### PRIVATE_MD_END
+
+### NOW YOUR TURN
+Update using this clarification:
 
 ### CURRENT PUBLIC MARKDOWN
 {idea.public_md or ""}
