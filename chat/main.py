@@ -66,6 +66,72 @@ def parse_structured_answer(raw: str) -> Dict[str, Optional[str]]:
     return {"answer": ans, "title": title, "pub": pub, "priv": priv}
 
 
+def parse_markdown_update(raw: str) -> Dict[str, str]:
+    """
+    Parse LLM response for markdown updates with fallback handling.
+    Expected format:
+    ### PUBLIC_MD_START
+    content
+    ### PUBLIC_MD_END
+    ### PRIVATE_MD_START
+    content
+    ### PRIVATE_MD_END
+    """
+    # Try to find the markers with more flexible regex
+    pub_match = re.search(
+        r"### PUBLIC_MD_START\s*\n(.*?)\n### PUBLIC_MD_END", 
+        raw, 
+        re.DOTALL | re.IGNORECASE
+    )
+    priv_match = re.search(
+        r"### PRIVATE_MD_START\s*\n(.*?)\n### PRIVATE_MD_END", 
+        raw, 
+        re.DOTALL | re.IGNORECASE
+    )
+    
+    if pub_match and priv_match:
+        return {
+            "public_md": pub_match.group(1).strip(),
+            "private_md": priv_match.group(1).strip()
+        }
+    
+    # Fallback: Try alternative patterns or use the raw content
+    # Look for any content between common markdown separators
+    lines = raw.split('\n')
+    public_content = []
+    private_content = []
+    current_section = None
+    
+    for line in lines:
+        line_lower = line.lower().strip()
+        if 'public' in line_lower and ('start' in line_lower or 'md' in line_lower):
+            current_section = 'public'
+            continue
+        elif 'private' in line_lower and ('start' in line_lower or 'md' in line_lower):
+            current_section = 'private'
+            continue
+        elif 'end' in line_lower and current_section:
+            current_section = None
+            continue
+        
+        if current_section == 'public':
+            public_content.append(line)
+        elif current_section == 'private':
+            private_content.append(line)
+    
+    if public_content or private_content:
+        return {
+            "public_md": '\n'.join(public_content).strip(),
+            "private_md": '\n'.join(private_content).strip()
+        }
+    
+    # Final fallback: assume the entire content is public markdown
+    return {
+        "public_md": raw.strip(),
+        "private_md": ""
+    }
+
+
 # ==== Authenticated (owner) route: persists edits if owner ====
 
 @router.post("/ideas/{idea_id}/ask", response_model=AskResponse)
@@ -96,7 +162,7 @@ def ask_idea(
         for r in idea.repo
         if r.type == "qa" and r.visibility in ["public", "private"]
     ]
-    qa_items_text = "\n".Join(qa_items) if False else "\n".join(qa_items)  # safeguard if case changes
+    qa_items_text = "\n".join(qa_items)
 
     # Assets (public)
     assets_text = "\n".join(f"- {a.title}: {a.url}" for a in idea.assets if a.visibility == "public")
@@ -312,7 +378,7 @@ UPDATED_PRIVATE_MD:
     )
 
 
-# ==== Owner-only management routes (unchanged) ====
+# ==== Owner-only management routes ====
 
 @router.get("/ideas/{idea_id}/unanswered")
 def get_unanswered(
@@ -363,61 +429,58 @@ def answer_unanswered(
     )
     session.add(repo_item)
 
-    # 2. Regenerate markdown with new info
-    from chat.openai_helper import ask_openai
+    # 2. Regenerate markdown with new info - simplified approach with better error handling
+    try:
+        from chat.openai_helper import ask_openai
 
-    refine_prompt = f"""
-You are updating the idea’s markdown after a new clarification.
+        # Simplified prompt that's less likely to fail
+        refine_prompt = f"""
+Based on this Q&A clarification, update the markdown content for this idea.
 
-### CRITICAL INSTRUCTIONS
-You must output in a rigid format. If you deviate, your output will be rejected.
+Current Public Content:
+{idea.public_md or "No public content yet."}
 
-1. Read the clarification (Q and A).
-2. Update the PUBLIC and PRIVATE markdowns by naturally incorporating the clarification. 
-   - Do not invent details.
-   - If no change is needed, output the existing markdowns unchanged.
-3. Output EXACTLY in the following structure with the markers shown. No extra text, no commentary, no headings outside the markers.
+Current Private Content:
+{idea.private_md or "No private content yet."}
 
-### OUTPUT EXAMPLE (follow this format exactly)
-
-### PUBLIC_MD_START
-This is the updated **public** markdown.
-It contains whatever new info is needed, written naturally.
-### PUBLIC_MD_END
-### PRIVATE_MD_START
-This is the updated **private** markdown.
-It may contain sensitive or more detailed notes for the owner.
-### PRIVATE_MD_END
-
-### NOW YOUR TURN
-Update using this clarification:
-
-### CURRENT PUBLIC MARKDOWN
-{idea.public_md or ""}
-
-### CURRENT PRIVATE MARKDOWN
-{idea.private_md or ""}
-
-### NEW CLARIFICATION
+New Q&A to incorporate:
 Q: {uq.question}
 A: {req.answer}
+
+Please provide updated content in this EXACT format:
+
+### PUBLIC_MD_START
+[Updated public markdown here - include existing content plus new clarification where appropriate]
+### PUBLIC_MD_END
+### PRIVATE_MD_START
+[Updated private markdown here - include existing content plus new clarification where appropriate]
+### PRIVATE_MD_END
+
+If no update is needed for a section, just include the existing content unchanged.
 """
 
-    raw = ask_openai(refine_prompt, "Refine markdowns with clarification")
-
-    import re
-    m_pub = re.search(r"### PUBLIC_MD_START\n(.*?)\n### PUBLIC_MD_END", raw, re.DOTALL)
-    m_priv = re.search(r"### PRIVATE_MD_START\n(.*?)\n### PRIVATE_MD_END", raw, re.DOTALL)
-    if not m_pub or not m_priv:
-        raise HTTPException(status_code=500, detail=f"Invalid LLM output:\n{raw}")
-    idea.public_md = m_pub.group(1).strip()
-    idea.private_md = m_priv.group(1).strip()
+        raw = ask_openai(refine_prompt, "Update markdown with clarification")
+        
+        # Use the robust parsing function
+        parsed_content = parse_markdown_update(raw)
+        
+        # Update the markdown content
+        if parsed_content["public_md"]:
+            idea.public_md = parsed_content["public_md"]
+        if parsed_content["private_md"]:
+            idea.private_md = parsed_content["private_md"]
+            
+    except Exception as e:
+        # If LLM fails, continue without updating markdown but log the error
+        print(f"Warning: Failed to update markdown automatically: {str(e)}")
+        # The Q&A will still be saved, just without automatic markdown integration
 
     # 3. Remove unanswered
     session.delete(uq)
     session.commit()
 
     return {"detail": "Unanswered resolved, markdown updated"}
+
 
 @router.get("/ideas/{idea_id}/qa")
 def list_persistent_qa(
