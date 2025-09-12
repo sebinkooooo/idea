@@ -388,6 +388,8 @@ PUBLIC_MD:
 
 PRIVATE_MD:
 <updated markdown>
+
+Do not just stick it into the Permanent QA section; integrate it naturally.
 """
 
     raw = ask_openai(refine_prompt, "Refine markdowns with clarification")

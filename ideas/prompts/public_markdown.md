@@ -6,7 +6,7 @@ Rules:
 - Do NOT include a top-level H1 (title is rendered separately).
 - Start with a short intro paragraph (value-focused).
 - Use headings starting from ## (H2) and below.
-- If details are missing, leave TODO notes instead of guessing.
+- If details are missing, leave TODO notes instead of guessing. But make sure to involve most of the text and dieas of the users initial draft.
 - Be crisp and scannable.
 
 Source context:
