@@ -8,11 +8,7 @@ Include the following sections:
 - ## Draft Milestones (suggest next steps in a roadmap style; if information is missing, mark with TODO clearly)
 - ## Open Questions (short, precise clarifications that directly relate to gaps in the notes — avoid generic questions)
 
-Rules:
-- Do NOT include a top-level H1 (title is rendered separately).  
-- Do NOT invent features, stakeholders, or scenarios not implied by the source.  
-- Keep the content concise but detailed enough to guide the creator.  
-- Return clean markdown only.  
+
 
 Source context:
 {{context}}
